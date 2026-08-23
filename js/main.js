@@ -704,7 +704,7 @@ async function syncFromBackend() {
             ac: !!data.ac,
             power: Number(data.power || 0),
             energyToday: Number(data.energyToday || 0),
-            warning: false,
+            warning: liveAlerts.some(alert => alert.roomId === id && !alert.resolved),
             appliances: { light: !!data.light, fan: !!data.fan, ac: !!data.ac },
             powerModel: {
                 light: data.light ? 0.08 : 0,
