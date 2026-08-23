@@ -8,7 +8,7 @@
 // BACKEND CONFIGURATION
 // ======================================================
 
-const BACKEND_URL = window.SMART_CAMPUS_API_URL || "http://localhost:5000";
+const BACKEND_URL = window.SMART_CAMPUS_API_URL || "https://smart-campus-automation.onrender.com";
 
 
 // ======================================================
@@ -946,7 +946,7 @@ async function updateBackendDevice(
 
                 body: JSON.stringify({
                     device: device,
-                    state: Boolean(state)
+                    state: state === true
                 })
             }
         );
@@ -1257,6 +1257,8 @@ const SimulationEngine = {
 
     // Save UI state.
     saveLocalState();
+
+    return backendRoom;
 
 },
 
