@@ -933,48 +933,63 @@ async function updateBackendDevice(
     device,
     state
 ) {
-
     try {
 
-        const response =
-            await fetch(
-                `${BACKEND_URL}/api/rooms/${roomId}/device`,
-                {
+        const response = await fetch(
+            `${BACKEND_URL}/api/rooms/${roomId}/device`,
+            {
+                method: "PATCH",
 
-                    method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json"
+                },
 
-                    headers: {
-
-                        "Content-Type":
-                            "application/json"
-
-                    },
-
-                    body:
-                        JSON.stringify({
-
-                            device,
-
-                            state
-
-                        })
-
-                }
-            );
-
+                body: JSON.stringify({
+                    device: device,
+                    state: Boolean(state)
+                })
+            }
+        );
 
         if (!response.ok) {
-
             throw new Error(
                 `Device update failed: ${response.status}`
             );
-
         }
 
+        const result = await response.json();
 
-        const result =
-            await response.json();
+        // Backend is the ONLY source of truth for alerts.
+        // Fetch fresh alerts immediately after device update.
+        const alertsResponse = await fetch(
+            `${BACKEND_URL}/api/alerts`,
+            {
+                cache: "no-store"
+            }
+        );
 
+        if (alertsResponse.ok) {
+
+            const alerts =
+                await alertsResponse.json();
+
+            Campus.alertObjects =
+                Array.isArray(alerts)
+                    ? alerts
+                    : [];
+
+            Campus.alerts =
+                Campus.alertObjects.map(
+                    alert => [
+                        alert.severity || "warning",
+                        alert.roomId ||
+                            alert.type ||
+                            "alert",
+                        alert.message || "",
+                        alert.timestamp || ""
+                    ]
+                );
+        }
 
         return result.room;
 
@@ -985,13 +1000,9 @@ async function updateBackendDevice(
             error
         );
 
-
         return null;
-
     }
-
 }
-
 
 // ======================================================
 // SAVE LOCAL UI STATE
@@ -1184,96 +1195,70 @@ const SimulationEngine = {
 
 
     async toggleAppliance(
-        id,
-        device
-    ) {
+    id,
+    device
+) {
 
-        const r =
-            campusState.rooms.find(
-                x => x.id === id
-            );
+    const r =
+        campusState.rooms.find(
+            x => x.id === id
+        );
 
+    if (!r) {
+        return;
+    }
 
-        if (!r) {
+    const newState =
+        !r.appliances[device];
 
-            return;
-
-        }
-
-
-        const newState =
-            !r.appliances[device];
-
-
-        // Backend first
-        const backendRoom =
-            await updateBackendDevice(
-                id,
-                device,
-                newState
-            );
-
-
-        if (!backendRoom) {
-
-            return;
-
-        }
-
-
-        // Update frontend from backend
-        r.occupied =
-            !!backendRoom.occupied;
-
-        r.light =
-            !!backendRoom.light;
-
-        r.fan =
-            !!backendRoom.fan;
-
-        r.ac =
-            !!backendRoom.ac;
-
-        r.power =
-            Number(
-                backendRoom.power || 0
-            );
-
-
-        r.appliances = {
-
-            light:
-                !!backendRoom.light,
-
-            fan:
-                !!backendRoom.fan,
-
-            ac:
-                !!backendRoom.ac
-
-        };
-
-
-        if (
-            !r.occupied &&
+    // Send device change to production backend first.
+    const backendRoom =
+        await updateBackendDevice(
+            id,
+            device,
             newState
-        ) {
+        );
 
-            this.alert(
-                id,
-                "manual",
-                "warning",
-                `Manual override: ${id} ${device} turned ON while room is empty.`
-            );
+    if (!backendRoom) {
+        return;
+    }
 
-        }
+    // Backend response is the source of truth.
+    r.occupied =
+        !!backendRoom.occupied;
 
+    r.light =
+        !!backendRoom.light;
 
-        refreshDashboardLive();
+    r.fan =
+        !!backendRoom.fan;
 
-        saveLocalState();
+    r.ac =
+        !!backendRoom.ac;
 
-    },
+    r.power =
+        Number(
+            backendRoom.power || 0
+        );
+
+    r.appliances = {
+        light:
+            !!backendRoom.light,
+
+        fan:
+            !!backendRoom.fan,
+
+        ac:
+            !!backendRoom.ac
+    };
+
+    // Refresh dashboard immediately.
+    refreshDashboardLive();
+
+    // Save UI state.
+    saveLocalState();
+
+},
 
 
     async setOccupancy(
