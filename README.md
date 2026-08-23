@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Smart Campus Automation
 
 ## Overview
@@ -51,3 +52,6 @@ Render uses `render.yaml` and starts the backend with `gunicorn app:app`. Set `F
 ## Future Scope
 
 ESP32/MQTT hardware, persistent storage, real-time transport and predictive analytics can replace the in-memory prototype later.
+=======
+# Smart-Campus-Automation
+>>>>>>> 0dd441b8b0819bf6ac5b2951cacf877b2635e5da
