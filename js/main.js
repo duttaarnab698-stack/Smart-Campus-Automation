@@ -829,6 +829,12 @@ async function syncFromBackend() {
         Campus.totalPower = Number(summary.totalPower ?? energy.totalPower ?? campusState.totalPower);
         Campus.alertObjects = liveAlerts;
         Campus.alerts = liveAlerts.map(a => [a.severity || "warning", a.type || "alert", a.message || "", a.timestamp || ""]);
+        Campus.energyAnalytics = {
+            summary,
+            analytics: energy,
+            alerts: liveAlerts
+        };
+        Campus.backendReady = true;
         const status = document.querySelector("#backendStatus");
         if (status) { status.textContent = "● ONLINE"; status.style.color = "#22c55e"; }
 
@@ -847,6 +853,15 @@ async function syncFromBackend() {
 
         }
 
+        if (
+            typeof window.refreshEnergyLive ===
+            "function"
+        ) {
+
+            window.refreshEnergyLive();
+
+        }
+
 
     } catch (error) {
 
@@ -856,6 +871,8 @@ async function syncFromBackend() {
         );
         const status = document.querySelector("#backendStatus");
         if (status) { status.textContent = "● OFFLINE"; status.style.color = "#f87171"; }
+        const energyStatus = document.querySelector("#energyStatus");
+        if (energyStatus) { energyStatus.textContent = "● OFFLINE"; energyStatus.style.color = "#EF4444"; }
 
     }
 
