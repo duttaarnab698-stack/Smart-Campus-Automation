@@ -279,7 +279,7 @@ window.DateTime = DateTime;
 // CONSTANTS
 // ======================================================
 
-const CAMPUS_STORE_KEY = "campus25-simulation-v2";
+const CAMPUS_STORE_KEY = "smartCampusState_v2";
 
 const SIMULATION_INTERVAL = 1000;
 
@@ -293,36 +293,16 @@ const ENERGY_RATE = 8;
 // ======================================================
 
 const campusState = (() => {
-
     try {
-
-        const saved =
-            JSON.parse(
-                localStorage.getItem(
-                    CAMPUS_STORE_KEY
-                )
-            );
-
-
-        if (saved) {
-
-            Object.assign(
-                Campus,
-                saved
-            );
-
+        const saved = JSON.parse(localStorage.getItem("smartCampusState_v2"));
+        if (saved && Array.isArray(saved.rooms) && saved.rooms.length === 147) {
+            Object.assign(Campus, saved);
         }
-
     } catch (error) {
-
-        console.error(
-            "Local campus state error:",
-            error
-        );
-
+        console.warn("Saved campus state could not be loaded; using demo data.", error);
     }
 
-
+    // Initial data is replaced by the persistent static-demo state.
     Campus.campus = "Campus 25";
 
     Campus.energySavedToday =
@@ -347,7 +327,7 @@ const campusState = (() => {
 
     Campus.simulationRunning = false;
 
-    Campus.automationEnabled = true;
+    Campus.automationEnabled = Campus.automationEnabled !== false;
 
 
     Campus.rooms.forEach(r => {
@@ -704,10 +684,19 @@ function saveLocalState() {
     campusState.lastUpdated =
         Date.now();
 
-
     localStorage.setItem(
         CAMPUS_STORE_KEY,
-        JSON.stringify(campusState)
+        JSON.stringify({
+            rooms: campusState.rooms,
+            automationEnabled: campusState.automationEnabled,
+            totalPower: campusState.totalPower,
+            energyToday: campusState.energyToday,
+            energySavedToday: campusState.energySavedToday,
+            estimatedCostSaved: campusState.estimatedCostSaved,
+            alertObjects: campusState.alertObjects,
+            alerts: campusState.alerts,
+            lastUpdated: campusState.lastUpdated
+        })
     );
 
 
@@ -724,352 +713,8 @@ function saveLocalState() {
 // SIMULATION ENGINE
 // ======================================================
 
-const SimulationEngine = {
+const SimulationEngine = {};
 
-    timer: null,
-
-
-    sync(room) {
-
-        syncRoomAppliances(room);
-
-
-        room.powerModel = {
-
-            light:
-                room.light
-                    ? 0.08
-                    : 0,
-
-            fan:
-                room.fan
-                    ? 0.12
-                    : 0,
-
-            ac:
-                room.ac
-                    ? 1.2
-                    : 0,
-
-            total: 0
-
-        };
-
-
-        room.powerModel.total =
-            Number(
-                (
-                    room.powerModel.light +
-                    room.powerModel.fan +
-                    room.powerModel.ac +
-                    (room.spikePower || 0)
-                ).toFixed(2)
-            );
-
-
-        room.power =
-            room.powerModel.total;
-
-    },
-
-
-    recalc() {
-
-        campusState.totalPower = 0;
-
-
-        campusState.rooms.forEach(
-            room => {
-
-                this.sync(room);
-
-                campusState.totalPower +=
-                    Number(
-                        room.power || 0
-                    );
-
-            }
-        );
-
-
-        campusState.totalPower =
-            Number(
-                campusState.totalPower.toFixed(2)
-            );
-
-    },
-
-
-    save() {
-
-        saveLocalState();
-
-    },
-
-
-    alert(
-        roomId,
-        type,
-        severity,
-        message
-    ) {
-
-        if (
-            campusState.alertObjects.some(
-                a =>
-                    a.roomId === roomId &&
-                    a.type === type &&
-                    !a.resolved
-            )
-        ) {
-
-            return;
-
-        }
-
-
-        campusState.alertObjects.unshift({
-
-            id: Date.now(),
-
-            roomId,
-
-            type,
-
-            severity,
-
-            message,
-
-            timestamp: Date.now(),
-
-            resolved: false
-
-        });
-
-
-        campusState.alerts.unshift([
-
-            severity === "critical"
-                ? "warning"
-                : severity,
-
-            roomId,
-
-            message,
-
-            "just now"
-
-        ]);
-
-    },
-
-
-    resolve(
-        roomId,
-        type
-    ) {
-
-        campusState.alertObjects
-
-            .filter(
-                a =>
-                    a.roomId === roomId &&
-                    a.type === type
-            )
-
-            .forEach(
-                a =>
-                    a.resolved = true
-            );
-
-    },
-
-
-    toggleAppliance(id, device) {
-        const r = campusState.rooms.find(x => x.id === id);
-        if (!r || !Object.hasOwn(r.appliances, device)) return null;
-        r.appliances[device] = !r.appliances[device];
-        r.manualDevices = r.manualDevices || { light: false, fan: false, ac: false };
-        r.manualDevices[device] = true;
-        r.autoOff[device] = r.appliances[device] && !r.occupied
-            ? Date.now() + AUTO_OFF_DELAY
-            : null;
-        this.recalc();
-        this.updateAlerts();
-        refreshSimulationViews();
-        return r;
-    },
-
-    setOccupancy(id, occupied) {
-        const r = campusState.rooms.find(x => x.id === id);
-        if (!r) return null;
-        r.occupied = !!occupied;
-        r.emptySince = r.occupied ? null : Date.now();
-        r.autoOffTriggered = false;
-        if (r.occupied) {
-            r.autoOff = { light: null, fan: null, ac: null };
-        } else {
-            ['light', 'fan', 'ac'].forEach(device => {
-                r.autoOff[device] = r.appliances[device]
-                    ? Date.now() + AUTO_OFF_DELAY
-                    : null;
-            });
-        }
-        if (r.occupied && campusState.automationEnabled) {
-            if (!r.manualDevices?.light) r.appliances.light = true;
-            if (!r.manualDevices?.fan) r.appliances.fan = true;
-        }
-        this.recalc();
-        this.updateAlerts();
-        refreshSimulationViews();
-        return r;
-    },
-
-    updateAlerts() {
-        campusState.rooms.forEach(room => {
-            const wasting = !room.occupied && room.power > 0;
-            room.warning = wasting;
-            if (wasting) this.alert(room.id, 'energy', room.spikePower ? 'critical' : 'warning', `${room.id} is empty while appliances are consuming power.`);
-            else this.resolve(room.id, 'energy');
-        });
-    },
-    async spike() {
-
-        const r =
-            campusState.rooms.find(
-                x => x.id === "A104"
-            );
-
-
-        if (!r) {
-
-            return;
-
-        }
-
-
-        r.spikePower = 1.75;
-
-        r.warning = true;
-
-
-        this.alert(
-            r.id,
-            "energy",
-            "critical",
-            `${r.id} is consuming unusually high energy (rule-based anomaly).`
-        );
-
-
-        this.recalc();
-
-        this.save();
-
-
-        toast(
-            `Energy spike simulated in ${r.id}`
-        );
-
-
-        setTimeout(
-            () => {
-
-                r.spikePower = 0;
-
-                r.warning = false;
-
-                this.resolve(
-                    r.id,
-                    "energy"
-                );
-
-
-                this.recalc();
-
-                this.save();
-
-            },
-            30000
-        );
-
-    },
-
-
-    start() {
-        if (this.timer) return;
-        campusState.simulationRunning = true;
-        this.recalc();
-        this.updateAlerts();
-        refreshSimulationViews();
-        this.timer = setInterval(() => {
-            if (!campusState.simulationRunning) return;
-            const now = Date.now();
-            campusState.rooms.forEach(room => {
-                room.temperature = Number(Math.max(20, Math.min(32, room.temperature + (Math.random() - 0.5) * 0.4)).toFixed(1));
-                room.humidity = Math.round(Math.max(35, Math.min(80, room.humidity + (Math.random() - 0.5) * 2)));
-                if (campusState.automationEnabled && !room.occupied) {
-                    ['light', 'fan', 'ac'].forEach(device => {
-                        if (room.appliances[device] && room.autoOff[device] && now >= room.autoOff[device]) {
-                            room.appliances[device] = false;
-                            room.autoOff[device] = null;
-                            Campus.energySavedToday = Number((Campus.energySavedToday + ({ light: 0.08, fan: 0.12, ac: 1.15 }[device]) * AUTO_OFF_DELAY / 3600000).toFixed(3));
-                            Campus.estimatedCostSaved = Number((Campus.energySavedToday * ENERGY_RATE).toFixed(2));
-                        }
-                    });
-                }
-            });
-            this.recalc();
-            this.updateAlerts();
-            Campus.rooms.forEach(room => room.energyToday = Number((room.energyToday + room.power * SIMULATION_INTERVAL / 3600000).toFixed(3)));
-            Campus.energyToday = Number(Campus.rooms.reduce((total, room) => total + room.energyToday, 0).toFixed(3));
-            refreshSimulationViews();
-        }, SIMULATION_INTERVAL);
-    },
-
-    pause() {
-
-        campusState.simulationRunning =
-            false;
-
-
-        clearInterval(
-            this.timer
-        );
-
-
-        this.timer = null;
-
-    },
-
-
-    reset() {
-
-        localStorage.removeItem(
-            CAMPUS_STORE_KEY
-        );
-
-
-        location.reload();
-
-    },
-
-
-    demo() {
-        const r = campusState.rooms.find(x => x.id === 'A104');
-        if (!r) return;
-        r.occupied = false;
-        r.emptySince = Date.now();
-        r.appliances = { light: true, fan: true, ac: false };
-        this.recalc();
-        this.updateAlerts();
-        refreshSimulationViews();
-        toast('Demo started: A104 empty-room automation sequence running.');
-    }
-
-};
-
-
-// ======================================================
 // GLOBAL ACCESS
 // ======================================================
 
@@ -1079,7 +724,8 @@ window.campusState =
 window.SimulationEngine =
     SimulationEngine;
 
-SimulationEngine.start();
+// simulation.js starts the single frontend automation engine.
+// Legacy simulation is never started.
 
 
 // ======================================================
@@ -1391,7 +1037,7 @@ function dashboardHTML() {
 
 
     return `
-        <div id="simulationStatus" style="font-size:12px;color:#22c55e;margin-bottom:10px">● ONLINE</div>
+        <div id="simulationStatus" style="font-size:12px;color:#22c55e;margin-bottom:10px">SMART AUTOMATION · ACTIVE</div>
 
         <div class="kpis">
 
@@ -1975,31 +1621,7 @@ function settingsPage() {
         );
 
 
-    automationToggle?.addEventListener(
-        "click",
-        () => {
-
-            campusState.automationEnabled =
-                !campusState.automationEnabled;
-
-            if (campusState.automationEnabled) {
-                SimulationEngine.start();
-            } else {
-                SimulationEngine.pause();
-            }
-    r.autoOff = { light: Date.now() + AUTO_OFF_DELAY, fan: Date.now() + AUTO_OFF_DELAY, ac: null };
-
-
-            automationToggle.classList.toggle(
-                "on"
-            );
-
-
-            saveLocalState();
-
-        }
-    );
-
+    // simulation.js attaches the local automation-toggle handler.
 }
 
 
@@ -2138,175 +1760,14 @@ if (
 
 
         <div class="simulation-controls card">
-
-            <strong>
-                Simulation Controls
-            </strong>
-
-            <span class="sub">
-                Browser-side Smart Campus simulation
-            </span>
-
-
-            <div>
-
-                <button
-                    class="btn filter"
-                    data-sim="start"
-                >
-                    Start Simulation
-                </button>
-
-
-                <button
-                    class="btn filter"
-                    data-sim="pause"
-                >
-                    Pause Sync
-                </button>
-
-
-                <button
-                    class="btn filter"
-                    data-sim="occupancy"
-                >
-                    Toggle A104
-                </button>
-
-
-                <button
-                    class="btn filter"
-                    data-sim="spike"
-                >
-                    Energy Spike
-                </button>
-
-
-                <button
-                    class="btn filter"
-                    data-sim="demo"
-                >
-                    Run Demo Scenario
-                </button>
-
-
-                <button
-                    class="btn filter"
-                    data-sim="reset"
-                >
-                    Reset
-                </button>
-
-            </div>
-
+            <strong>Smart Automation</strong>
+            <span class="sub">Smart Automation uses this browser demo state.</span>
         </div>
-
         `
     );
 
 
     refreshDashboardLive();
-
-
-    document
-        .querySelectorAll(
-            "[data-sim]"
-        )
-        .forEach(
-            button => {
-
-                button.onclick =
-                    async () => {
-
-                        const action =
-                            button.dataset.sim;
-
-
-                        if (
-                            action ===
-                            "start"
-                        ) {
-
-                            SimulationEngine.start();
-
-                        }
-
-                        else if (
-                            action ===
-                            "pause"
-                        ) {
-
-                            SimulationEngine.pause();
-
-                        }
-
-                        else if (
-                            action ===
-                            "occupancy"
-                        ) {
-
-                            const r =
-                                Campus.rooms.find(
-                                    r =>
-                                        r.id ===
-                                        "A104"
-                                );
-
-
-                            if (r) {
-
-                                await SimulationEngine.setOccupancy(
-                                    r.id,
-                                    !r.occupied
-                                );
-
-                            }
-
-                        }
-
-                        else if (
-                            action ===
-                            "spike"
-                        ) {
-
-                            await SimulationEngine.spike();
-
-                        }
-
-                        else if (
-                            action ===
-                            "demo"
-                        ) {
-
-                            SimulationEngine.demo();
-
-                        }
-
-                        else if (
-                            action ===
-                            "reset"
-                        ) {
-
-                            SimulationEngine.reset();
-
-                        }
-
-
-                        if (
-                            action !==
-                            "reset"
-                        ) {
-
-                            toast(
-                                "Action applied"
-                            );
-
-                        }
-
-                    };
-
-            }
-        );
 
 
     window.addEventListener(

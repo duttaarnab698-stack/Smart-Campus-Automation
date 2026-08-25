@@ -1,9 +1,17 @@
 # Smart Campus Automation
 
-A self-contained static Smart Campus frontend built with HTML, CSS and JavaScript.
+A polished, self-contained static Smart Campus Automation demo built with HTML, CSS, and JavaScript.
 
 ## Run locally
 
-Open the project folder in VS Code and start `index.html` with Live Server. No server, build step, environment variables, or external service is required.
+Open `index.html` directly in a browser, or open the project in VS Code and use Live Server. No backend, database, API key, or server-side runtime is required.
 
-Use the demo login credentials shown on the sign-in page. Campus rooms, occupancy, appliance controls, power, energy values and alerts are simulated in the browser and persist in local storage. Use the dashboard simulation controls to pause, restart, reset or trigger the demo scenarios.
+## Demo behavior
+
+- 147 deterministic rooms (A101–A149, B101–B149, C101–C149)
+- Light, fan, and AC controls update one central browser state
+- Empty-room devices switch off independently after 15 seconds when Smart Automation is active
+- Occupied-room devices stay on; changing an empty room to occupied cancels pending shutdowns
+- Alerts, power, energy use, and savings are calculated locally
+- State persists in browser localStorage under `smartCampusState_v2`
+- Use Settings to pause/resume Smart Automation; refresh the browser to retain current demo data
