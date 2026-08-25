@@ -1,14 +1,13 @@
 // ======================================================
 // SMART CAMPUS - MAIN.JS
-// BACKEND CONNECTED VERSION
+// STATIC FRONTEND VERSION
 // ======================================================
 
 
 // ======================================================
-// BACKEND CONFIGURATION
+// STATIC CONFIGURATION
 // ======================================================
 
-const BACKEND_URL = window.SMART_CAMPUS_API_URL || "https://smart-campus-automation.onrender.com";
 
 
 // ======================================================
@@ -395,6 +394,12 @@ const campusState = (() => {
 
         }
 
+        r.manualDevices = r.manualDevices || {
+            light: false,
+            fan: false,
+            ac: false
+        };
+
     });
 
 
@@ -644,384 +649,23 @@ function syncRoomAppliances(room) {
 
 
 // ======================================================
-// BACKEND → FRONTEND SYNC
+// FRONTEND SIMULATION REFRESH
 // ======================================================
 
-async function syncFromBackend() {
-
-    try {
-
-        const healthResponse = await fetch(
-            `${BACKEND_URL}/api/health`,
-            { cache: "no-store" }
-        );
-        if (!healthResponse.ok) throw new Error(`Backend health HTTP ${healthResponse.status}`);
-
-        const response =
-            await fetch(
-                `${BACKEND_URL}/api/rooms`,
-                {
-                    cache: "no-store"
-                }
-            );
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                `Backend HTTP ${response.status}`
-            );
-
-        }
-
-
-        const backendRooms =
-            await response.json();
-
-        const [summaryResponse, energyResponse, alertsResponse] = await Promise.all([
-            fetch(`${BACKEND_URL}/api/dashboard/summary`, { cache: "no-store" }),
-            fetch(`${BACKEND_URL}/api/analytics/energy`, { cache: "no-store" }),
-            fetch(`${BACKEND_URL}/api/alerts`, { cache: "no-store" })
-        ]);
-        if (!summaryResponse.ok || !energyResponse.ok || !alertsResponse.ok) throw new Error("Backend analytics request failed");
-        const summary = await summaryResponse.json();
-        const energy = await energyResponse.json();
-        const liveAlerts = await alertsResponse.json();
-
-        // The backend room list is the single source of truth. Replace the
-        // local demo collection so every dashboard/page view uses the same set.
-        Campus.rooms = Object.entries(backendRooms).map(([id, data]) => ({
-            id,
-            campus: "Campus 25",
-            floor: data.floor || "First Floor",
-            block: data.block || "A Block",
-            building: data.block || "A Block",
-            occupied: !!data.occupied,
-            temperature: Number(data.temperature || 0),
-            humidity: Number(data.humidity || 0),
-            light: !!data.light,
-            fan: !!data.fan,
-            ac: !!data.ac,
-            power: Number(data.power || 0),
-            energyToday: Number(data.energyToday || 0),
-            warning: liveAlerts.some(alert => alert.roomId === id && !alert.resolved),
-            appliances: { light: !!data.light, fan: !!data.fan, ac: !!data.ac },
-            powerModel: {
-                light: data.light ? 0.08 : 0,
-                fan: data.fan ? 0.07 : 0,
-                ac: data.ac ? 1.2 : 0,
-                total: Number(data.power || 0)
-            }
-        }));
-
-
-        Object.entries(
-            backendRooms
-        ).forEach(
-            ([roomId, backendRoom]) => {
-
-                const frontendRoom =
-                    campusState.rooms.find(
-                        r => r.id === roomId
-                    );
-
-
-                if (!frontendRoom) {
-
-                    return;
-
-                }
-
-
-                frontendRoom.occupied =
-                    !!backendRoom.occupied;
-
-
-                frontendRoom.temperature =
-                    Number(
-                        backendRoom.temperature
-                    );
-
-
-                frontendRoom.light =
-                    !!backendRoom.light;
-
-
-                frontendRoom.fan =
-                    !!backendRoom.fan;
-
-
-                frontendRoom.ac =
-                    !!backendRoom.ac;
-
-
-                frontendRoom.power =
-                    Number(
-                        backendRoom.power || 0
-                    );
-
-
-                frontendRoom.appliances = {
-
-                    light:
-                        !!backendRoom.light,
-
-                    fan:
-                        !!backendRoom.fan,
-
-                    ac:
-                        !!backendRoom.ac
-
-                };
-
-
-                frontendRoom.powerModel = {
-
-                    light:
-                        backendRoom.light
-                            ? 0.08
-                            : 0,
-
-                    fan:
-                        backendRoom.fan
-                            ? 0.07
-                            : 0,
-
-                    ac:
-                        backendRoom.ac
-                            ? 1.2
-                            : 0,
-
-                    total:
-                        Number(
-                            backendRoom.power || 0
-                        )
-
-                };
-
-            }
-        );
-
-
-        // Campus total power
-        campusState.totalPower =
-            Object.values(
-                backendRooms
-            ).reduce(
-                (total, r) =>
-                    total +
-                    Number(r.power || 0),
-                0
-            );
-
-
-        campusState.totalPower =
-            Number(
-                campusState.totalPower.toFixed(2)
-            );
-
-
-        campusState.lastUpdated =
-            Date.now();
-
-        Campus.energyToday = Number(energy.totalEnergyToday || summary.energyToday || 0);
-        Campus.energySavedToday = Number(energy.energySavedToday || summary.energySavedToday || 0);
-        Campus.totalPower = Number(summary.totalPower ?? energy.totalPower ?? campusState.totalPower);
-        Campus.alertObjects = liveAlerts;
-        Campus.alerts = liveAlerts.map(a => [a.severity || "warning", a.type || "alert", a.message || "", a.timestamp || ""]);
-        Campus.energyAnalytics = {
-            summary,
-            analytics: energy,
-            alerts: liveAlerts
-        };
-        Campus.backendReady = true;
-        const status = document.querySelector("#backendStatus");
-        if (status) { status.textContent = "● ONLINE"; status.style.color = "#22c55e"; }
-
-
-        // Update dashboard
-        refreshDashboardLive();
-
-
-        // Update rooms page if available
-        if (
-            typeof window.refreshRoomsLive ===
-            "function"
-        ) {
-
-            window.refreshRoomsLive();
-
-        }
-
-        if (
-            typeof window.refreshEnergyLive ===
-            "function"
-        ) {
-
-            window.refreshEnergyLive();
-
-        }
-
-
-    } catch (error) {
-
-        console.error(
-            "Backend connection error:",
-            error
-        );
-        const status = document.querySelector("#backendStatus");
-        if (status) { status.textContent = "● OFFLINE"; status.style.color = "#f87171"; }
-        const energyStatus = document.querySelector("#energyStatus");
-        if (energyStatus) { energyStatus.textContent = "● OFFLINE"; energyStatus.style.color = "#EF4444"; }
-
-    }
-
+function refreshSimulationViews() {
+    Campus.totalPower = Number((campusState.totalPower || 0).toFixed(2));
+    Campus.energyAnalytics = {
+        summary: { totalPower: Campus.totalPower, energyToday: Campus.energyToday, energySavedToday: Campus.energySavedToday, occupiedRooms: Campus.rooms.filter(room => room.occupied).length, totalRooms: Campus.rooms.length },
+        analytics: { totalPower: Campus.totalPower, totalEnergyToday: Campus.energyToday, energySavedToday: Campus.energySavedToday, estimatedCostToday: Campus.energyToday * ENERGY_RATE, roomsUsingEnergy: Campus.rooms.filter(room => room.power > 0).length },
+        alerts: Campus.alertObjects
+    };
+    Campus.alerts = Campus.alertObjects.map(alert => [alert.severity === 'critical' ? 'warning' : alert.severity, alert.roomId, alert.message, alert.timestamp]);
+    campusState.lastUpdated = Date.now();
+    refreshDashboardLive();
+    window.refreshRoomsLive?.();
+    window.refreshEnergyLive?.();
+    saveLocalState();
 }
-
-
-// ======================================================
-// BACKEND UPDATE HELPER
-// ======================================================
-
-async function updateBackendRoom(
-    roomId,
-    data
-) {
-
-    try {
-
-        const response =
-            await fetch(
-                `${BACKEND_URL}/api/rooms/${roomId}`,
-                {
-
-                    method: "PATCH",
-
-                    headers: {
-
-                        "Content-Type":
-                            "application/json"
-
-                    },
-
-                    body:
-                        JSON.stringify(data)
-
-                }
-            );
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                `Backend update failed: ${response.status}`
-            );
-
-        }
-
-
-        const result =
-            await response.json();
-
-
-        return result.room;
-
-    } catch (error) {
-
-        console.error(
-            "Backend update error:",
-            error
-        );
-
-
-        return null;
-
-    }
-
-}
-
-
-// ======================================================
-// DEVICE UPDATE
-// ======================================================
-
-async function updateBackendDevice(
-    roomId,
-    device,
-    state
-) {
-    try {
-
-        const response = await fetch(
-            `${BACKEND_URL}/api/rooms/${roomId}/device`,
-            {
-                method: "PATCH",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-                body: JSON.stringify({
-                    device: device,
-                    state: state === true
-                })
-            }
-        );
-
-        if (!response.ok) {
-            throw new Error(
-                `Device update failed: ${response.status}`
-            );
-        }
-
-        const result = await response.json();
-
-        // Backend is the ONLY source of truth for alerts.
-        // Fetch fresh alerts immediately after device update.
-        const alertsResponse = await fetch(
-            `${BACKEND_URL}/api/alerts`,
-            {
-                cache: "no-store"
-            }
-        );
-
-        if (alertsResponse.ok) {
-
-            const alerts =
-                await alertsResponse.json();
-
-            Campus.alertObjects =
-                Array.isArray(alerts)
-                    ? alerts
-                    : [];
-
-            Campus.alerts =
-                Campus.alertObjects.map(
-                    alert => [
-                        alert.severity || "warning",
-                        alert.roomId ||
-                            alert.type ||
-                            "alert",
-                        alert.message || "",
-                        alert.timestamp || ""
-                    ]
-                );
-        }
-
-        return result.room;
-
-    } catch (error) {
-
-        console.error(
-            "Device update error:",
-            error
-        );
-
-        return null;
-    }
-}
-
-// ======================================================
 // SAVE LOCAL UI STATE
 // ======================================================
 
@@ -1211,153 +855,42 @@ const SimulationEngine = {
     },
 
 
-    async toggleAppliance(
-    id,
-    device
-) {
-
-    const r =
-        campusState.rooms.find(
-            x => x.id === id
-        );
-
-    if (!r) {
-        return;
-    }
-
-    const newState =
-        !r.appliances[device];
-
-    // Send device change to production backend first.
-    const backendRoom =
-        await updateBackendDevice(
-            id,
-            device,
-            newState
-        );
-
-    if (!backendRoom) {
-        return;
-    }
-
-    // Backend response is the source of truth.
-    r.occupied =
-        !!backendRoom.occupied;
-
-    r.light =
-        !!backendRoom.light;
-
-    r.fan =
-        !!backendRoom.fan;
-
-    r.ac =
-        !!backendRoom.ac;
-
-    r.power =
-        Number(
-            backendRoom.power || 0
-        );
-
-    r.appliances = {
-        light:
-            !!backendRoom.light,
-
-        fan:
-            !!backendRoom.fan,
-
-        ac:
-            !!backendRoom.ac
-    };
-
-    // Refresh dashboard immediately.
-    refreshDashboardLive();
-
-    // Save UI state.
-    saveLocalState();
-
-    return backendRoom;
-
-},
-
-
-    async setOccupancy(
-        id,
-        occupied
-    ) {
-
-        const r =
-            campusState.rooms.find(
-                x => x.id === id
-            );
-
-
-        if (!r) {
-
-            return;
-
-        }
-
-
-        const backendRoom =
-            await updateBackendRoom(
-                id,
-                {
-                    occupied
-                }
-            );
-
-
-        if (!backendRoom) {
-
-            return;
-
-        }
-
-
-        r.occupied =
-            !!backendRoom.occupied;
-
-        r.temperature =
-            Number(
-                backendRoom.temperature
-            );
-
-        r.light =
-            !!backendRoom.light;
-
-        r.fan =
-            !!backendRoom.fan;
-
-        r.ac =
-            !!backendRoom.ac;
-
-        r.power =
-            Number(
-                backendRoom.power || 0
-            );
-
-
-        r.appliances = {
-
-            light:
-                !!backendRoom.light,
-
-            fan:
-                !!backendRoom.fan,
-
-            ac:
-                !!backendRoom.ac
-
-        };
-
-
-        refreshDashboardLive();
-
-        saveLocalState();
-
+    toggleAppliance(id, device) {
+        const r = campusState.rooms.find(x => x.id === id);
+        if (!r || !Object.hasOwn(r.appliances, device)) return null;
+        r.appliances[device] = !r.appliances[device];
+        r.manualDevices = r.manualDevices || { light: false, fan: false, ac: false };
+        r.manualDevices[device] = true;
+        this.recalc();
+        this.updateAlerts();
+        refreshSimulationViews();
+        return r;
     },
 
+    setOccupancy(id, occupied) {
+        const r = campusState.rooms.find(x => x.id === id);
+        if (!r) return null;
+        r.occupied = !!occupied;
+        r.emptySince = r.occupied ? null : Date.now();
+        r.autoOffTriggered = false;
+        if (r.occupied && campusState.automationEnabled) {
+            if (!r.manualDevices?.light) r.appliances.light = true;
+            if (!r.manualDevices?.fan) r.appliances.fan = true;
+        }
+        this.recalc();
+        this.updateAlerts();
+        refreshSimulationViews();
+        return r;
+    },
 
+    updateAlerts() {
+        campusState.rooms.forEach(room => {
+            const wasting = !room.occupied && room.power > 0;
+            room.warning = wasting;
+            if (wasting) this.alert(room.id, 'energy', room.spikePower ? 'critical' : 'warning', `${room.id} is empty while appliances are consuming power.`);
+            else this.resolve(room.id, 'energy');
+        });
+    },
     async spike() {
 
         const r =
@@ -1421,32 +954,32 @@ const SimulationEngine = {
 
 
     start() {
-
-        console.log(
-            "Backend live mode active."
-        );
-
-
-        campusState.simulationRunning =
-            true;
-
-
-        clearInterval(
-            this.timer
-        );
-
-
-        this.timer =
-            setInterval(
-                syncFromBackend,
-                SIMULATION_INTERVAL
-            );
-
-
-        syncFromBackend();
-
+        campusState.simulationRunning = true;
+        clearInterval(this.timer);
+        this.recalc();
+        this.updateAlerts();
+        refreshSimulationViews();
+        this.timer = setInterval(() => {
+            if (!campusState.simulationRunning) return;
+            campusState.rooms.forEach(room => {
+                room.temperature = Number(Math.max(20, Math.min(32, room.temperature + (Math.random() - 0.5) * 0.4)).toFixed(1));
+                room.humidity = Math.round(Math.max(35, Math.min(80, room.humidity + (Math.random() - 0.5) * 2)));
+                if (!room.occupied && campusState.automationEnabled && room.emptySince && Date.now() - room.emptySince >= AUTO_OFF_DELAY) {
+                    const automatedDevices = ['light', 'fan', 'ac'].filter(device => !room.manualDevices?.[device] && room.appliances[device]);
+                    const avoidedLoad = automatedDevices.reduce((total, device) => total + ({ light: 0.08, fan: 0.07, ac: 1.2 }[device]), 0);
+                    automatedDevices.forEach(device => { room.appliances[device] = false; });
+                    Campus.energySavedToday = Number((Campus.energySavedToday + avoidedLoad * AUTO_OFF_DELAY / 3600000).toFixed(3));
+                    Campus.estimatedCostSaved = Number((Campus.energySavedToday * ENERGY_RATE).toFixed(2));
+                    room.autoOffTriggered = true;
+                }
+            });
+            this.recalc();
+            this.updateAlerts();
+            Campus.rooms.forEach(room => room.energyToday = Number((room.energyToday + room.power * SIMULATION_INTERVAL / 3600000).toFixed(3)));
+            Campus.energyToday = Number(Campus.rooms.reduce((total, room) => total + room.energyToday, 0).toFixed(3));
+            refreshSimulationViews();
+        }, SIMULATION_INTERVAL);
     },
-
 
     pause() {
 
@@ -1477,42 +1010,15 @@ const SimulationEngine = {
 
 
     demo() {
-
-        const r =
-            campusState.rooms.find(
-                x => x.id === "A104"
-            );
-
-
-        if (!r) {
-
-            return;
-
-        }
-
-
-        // Start demo with appliances ON
-        updateBackendRoom(
-            "A104",
-            {
-                occupied: false,
-                light: true,
-                fan: true,
-                ac: false
-            }
-        );
-
-
-        toast(
-            "Demo started: A104 empty-room automation sequence running."
-        );
-
-
-        setTimeout(
-            syncFromBackend,
-            1000
-        );
-
+        const r = campusState.rooms.find(x => x.id === 'A104');
+        if (!r) return;
+        r.occupied = false;
+        r.emptySince = Date.now();
+        r.appliances = { light: true, fan: true, ac: false };
+        this.recalc();
+        this.updateAlerts();
+        refreshSimulationViews();
+        toast('Demo started: A104 empty-room automation sequence running.');
     }
 
 };
@@ -1528,30 +1034,7 @@ window.campusState =
 window.SimulationEngine =
     SimulationEngine;
 
-window.syncFromBackend =
-    syncFromBackend;
-
-window.updateBackendRoom =
-    updateBackendRoom;
-
-window.updateBackendDevice =
-    updateBackendDevice;
-
-
-// ======================================================
-// START BACKEND SYNC
-// ======================================================
-
-// IMPORTANT:
-// Do NOT start the old frontend simulation.
-// Backend is now the source of truth.
-
-syncFromBackend();
-
-setInterval(
-    syncFromBackend,
-    2000
-);
+SimulationEngine.start();
 
 
 // ======================================================
@@ -1863,7 +1346,7 @@ function dashboardHTML() {
 
 
     return `
-        <div id="backendStatus" style="font-size:12px;color:#22c55e;margin-bottom:10px">● ONLINE</div>
+        <div id="simulationStatus" style="font-size:12px;color:#22c55e;margin-bottom:10px">● ONLINE</div>
 
         <div class="kpis">
 
@@ -2605,11 +2088,11 @@ if (
         <div class="simulation-controls card">
 
             <strong>
-                Backend Controls
+                Simulation Controls
             </strong>
 
             <span class="sub">
-                Connected to Smart Campus Backend
+                Browser-side Smart Campus simulation
             </span>
 
 
@@ -2619,7 +2102,7 @@ if (
                     class="btn filter"
                     data-sim="start"
                 >
-                    Start Live Sync
+                    Start Simulation
                 </button>
 
 

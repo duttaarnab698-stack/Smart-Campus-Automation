@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: smart-campus-backend
-    runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
