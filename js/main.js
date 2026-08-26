@@ -295,7 +295,7 @@ const ENERGY_RATE = 8;
 const campusState = (() => {
     try {
         const saved = JSON.parse(localStorage.getItem("smartCampusState_v2"));
-        if (saved && Array.isArray(saved.rooms) && saved.rooms.length === 147) {
+        if (saved && Array.isArray(saved.rooms) && (saved.rooms.length === 147 || saved.rooms.length === 130)) {
             Object.assign(Campus, saved);
         }
     } catch (error) {
@@ -616,19 +616,80 @@ groundFloorIds.forEach(
 );
 
 
-// Keep persisted data aligned with the 147-room campus model.
-const requiredRoomIds = [
-    ...['A', 'B', 'C'].flatMap(block =>
-        Array.from({ length: 49 }, (_, i) => `${block}${101 + i}`)
-    )
-];
-const fallbackRoomsById = new Map(campusState.rooms.map(r => [r.id, r]));
-campusState.rooms = requiredRoomIds.map((id, i) => {
-    const existing = fallbackRoomsById.get(id);
-    if (existing) return existing;
-    const block = `${id[0]} Block`;
-    return room(id, 'First Floor', block, i % 3 === 0);
+// ======================================================
+// ACTUAL CAMPUS ROOM INVENTORY
+// ======================================================
+// Based on real floor plans - DO NOT use generated IDs
+// Total rooms: ~130 actual rooms across 4 floors
+
+const actualRoomsByFloor = {
+    'Ground Floor': [
+        // A Block - Ground Floor
+        'A006', 'A007', 'A008', 'A009', 'A011', 'A013', 'A015',
+        'A101', 'A102', 'A103', 'A104', 'A105',
+        // B Block - Ground Floor
+        'B001', 'B002', 'B004', 'B005', 'B006', 'B007', 'B008', 'B009',
+        'B011', 'B012', 'B013', 'B014', 'B015', 'B016', 'B017', 'B018',
+        'B019', 'B020', 'B021', 'B022',
+        // C Block - Ground Floor
+        'C01', 'C02'
+    ],
+    'First Floor': [
+        // A Block - First Floor
+        'A101', 'A102', 'A103', 'A104', 'A105', 'A109', 'A110', 'A111',
+        // B Block - First Floor
+        'B101', 'B102', 'B104', 'B105', 'B106', 'B107', 'B108', 'B109',
+        'B110', 'B111', 'B112', 'B113', 'B114', 'B115', 'B116', 'B117',
+        'B118', 'B119', 'B120', 'B121',
+        // C Block - First Floor
+        'C101', 'C11'
+    ],
+    'Second Floor': [
+        // A Block - Second Floor
+        'A211', 'A213',
+        // B Block - Second Floor
+        'B201', 'B202', 'B204', 'B205', 'B206', 'B207', 'B208', 'B209',
+        'B210', 'B211', 'B212', 'B213', 'B214', 'B215', 'B216', 'B217',
+        'B218', 'B219', 'B220', 'B221',
+        // C Block - Second Floor
+        'C201', 'C203', 'C211', 'C212', 'C213'
+    ],
+    'Third Floor': [
+        // A Block - Third Floor
+        'A301', 'A302', 'A303', 'A304', 'A305', 'A307', 'A308', 'A309',
+        'A310', 'A311', 'A313', 'A314', 'A315', 'A316', 'A317', 'A318',
+        // B Block - Third Floor
+        'B301', 'B302', 'B303', 'B304', 'B305', 'B306', 'B307', 'B308',
+        'B309', 'B310', 'B311', 'B312', 'B313', 'B314', 'B315', 'B316',
+        'B317', 'B318', 'B319', 'B320', 'B321',
+        // C Block - Third Floor
+        'C301', 'C303'
+    ]
+};
+
+// Rebuild Campus.rooms with ACTUAL room data (not generated)
+const fallbackRoomsById = new Map(campusState.rooms.map(r => [r.id + '|' + r.floor, r]));
+const finalRooms = [];
+
+Object.entries(actualRoomsByFloor).forEach(([floor, roomIds]) => {
+    roomIds.forEach((id, i) => {
+        const key = id + '|' + floor;
+        let roomData = fallbackRoomsById.get(key);
+        
+        if (!roomData) {
+            // Create new room with proper floor assignment
+            const block = id.startsWith('A') ? 'A Block' : 
+                         id.startsWith('B') ? 'B Block' : 'C Block';
+            roomData = room(id, floor, block, i % 3 === 0);
+        }
+        
+        finalRooms.push(roomData);
+    });
 });
+
+campusState.rooms = finalRooms;
+
+// Ensure all rooms have proper appliance structure
 campusState.rooms.forEach(r => {
     r.appliances = r.appliances && typeof r.appliances === 'object'
         ? r.appliances
